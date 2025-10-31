@@ -1,0 +1,4 @@
+# telegram_reviews_bot/requirements.txt
+aiogram==3.4.1
+aiosqlite
+Pillow
