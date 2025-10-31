@@ -6,19 +6,11 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: python bot.py
     autoDeploy: true
-    services:
-      - type: web
-        name: telegram-reviews-bot
-        env: python
-        plan: free
-        buildCommand: pip install -r requirements.txt
-        startCommand: python bot.py
-        autoDeploy: true
-        envVars:
-          - key: BOT_TOKEN
-            sync: false
-          - key: ADMIN_ID
-            sync: false
-          - key: DATABASE_URL
-            sync: false
-        rootDir: .
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: ADMIN_ID
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+    rootDir: .
