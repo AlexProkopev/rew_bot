@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+
+# Env
+.env
+
+# Local DBs / files
+*.db
+*.sqlite
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/

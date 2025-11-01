@@ -1,11 +1,10 @@
 services:
   - type: worker
     name: telegram-reviews-bot
-    env: python
+    env: docker
     plan: starter
     region: frankfurt
-    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
-    startCommand: python bot.py
+    dockerfilePath: ./Dockerfile
     autoDeploy: true
     envVars:
       - key: BOT_TOKEN
