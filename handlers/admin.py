@@ -46,6 +46,55 @@ async def back_to_main_menu(message: Message):
     from handlers.start import cmd_start # Избегаем циклического импорта
     await cmd_start(message)
 
+# --- Быстрое добавление отзыва через пересылку ---
+@router.message(F.forward_from)
+async def forward_as_review(message: Message, bot: Bot):
+    """Админ пересылает сообщение — оно сохраняется как одобренный отзыв"""
+    forwarded_user = message.forward_from
+    
+    # Если пересланное сообщение от пользователя со скрытой пересылкой, не обработаем
+    if not forwarded_user:
+        await message.answer("⚠️ Не могу получить данные отправителя (возможно, у пользователя скрыта пересылка). Отзыв не добавлен.")
+        return
+    
+    # Извлекаем текст и фото
+    text = message.text or message.caption or ""
+    photo_id = None
+    
+    if message.photo:
+        photo_id = message.photo[-1].file_id
+    
+    if not text and not photo_id:
+        await message.answer("⚠️ Сообщение не содержит текста или фото. Отзыв не добавлен.")
+        return
+    
+    # Сохраняем пользователя в БД
+    await db.add_or_update_user(
+        user_id=forwarded_user.id,
+        username=forwarded_user.username,
+        first_name=forwarded_user.first_name,
+        last_name=forwarded_user.last_name
+    )
+    
+    # Добавляем отзыв сразу как одобренный
+    review_id = await db.add_review(
+        user_id=forwarded_user.id,
+        username=forwarded_user.username,
+        text=text,
+        photo_id=photo_id
+    )
+    await db.update_review_status(review_id, "approved")
+    
+    # Подтверждение админу
+    confirm_text = f"✅ Отзыв #{review_id} добавлен и одобрен!\n\n"
+    confirm_text += f"От: @{forwarded_user.username or forwarded_user.first_name}\n"
+    if text:
+        confirm_text += f"Текст: {text[:100]}{'...' if len(text) > 100 else ''}"
+    if photo_id:
+        confirm_text += f"\n🖼️ С фото"
+    
+    await message.answer(confirm_text)
+
 # --- Обработка модерации отзывов ---
 
 # --- Кнопки для модерации с удалением ---
