@@ -8,6 +8,7 @@ from aiogram.filters import Filter
 import database as db
 from config import ADMIN_ID
 from utils.loader import loading_statistics, loading_user_data, MailingProgressLoader
+import asyncio
 
 # --- Фильтр для проверки админа ---
 class AdminFilter(Filter):
@@ -125,6 +126,11 @@ async def approve_review(callback: CallbackQuery, bot: Bot):
         await bot.send_message(review['user_id'], "Ваш отзыв был одобрен и опубликован!")
     except Exception as e:
         print(f"Не удалось уведомить пользователя {review['user_id']}: {e}")
+    # Фоновая рассылка всем пользователям (без звука) с кнопкой "Прочитать"
+    try:
+        asyncio.create_task(broadcast_published_review(review_id, bot))
+    except Exception as e:
+        print(f"Не удалось запустить задачу рассылки: {e}")
     await callback.answer()
 
 @router.callback_query(F.data.startswith("admin_delete_"))
@@ -529,3 +535,34 @@ async def show_detailed_statistics(callback: CallbackQuery):
     
     await callback.message.edit_text(detailed_text, parse_mode="Markdown", reply_markup=kb)
     await callback.answer()
+
+
+async def broadcast_published_review(review_id: int, bot: Bot):
+    """Рассылка уведомления всем пользователям о новом опубликованном отзыве (без звука).
+    Сообщение содержит кнопку 'Прочитать', которая открывает отзыв через callback.
+    """
+    try:
+        review = await db.get_review(review_id)
+        if not review:
+            return
+
+        user_ids = await db.get_all_user_ids()
+        if not user_ids:
+            return
+
+        username = review.get('username') or str(review.get('user_id'))
+        text = f"Новый отзыв от @{username}"
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Прочитать", callback_data=f"view_review_{review_id}_0")]
+        ])
+
+        for uid in user_ids:
+            try:
+                await bot.send_message(uid, text, reply_markup=kb, disable_notification=True)
+                await asyncio.sleep(0.05)  # небольшая пауза, чтобы не превысить лимиты
+            except Exception as e:
+                # Логируем, но продолжаем рассылку
+                print(f"Не удалось отправить уведомление пользователю {uid}: {e}")
+
+    except Exception as e:
+        print(f"Ошибка в broadcast_published_review: {e}")
