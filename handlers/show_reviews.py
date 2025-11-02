@@ -16,6 +16,8 @@ async def format_review_message(review):
 
 @router.message(F.text == "👀 Посмотреть отзывы")
 async def show_reviews_cmd(message: Message, bot: Bot):
+    # Логируем просмотр отзывов
+    await db.log_user_activity(message.from_user.id, "viewed_reviews")
     await show_reviews_page(message, bot, offset=0)
 
 async def show_reviews_page(message_or_callback, bot: Bot, offset: int):
@@ -29,9 +31,12 @@ async def show_reviews_page(message_or_callback, bot: Bot, offset: int):
 
     builder = InlineKeyboardBuilder()
     
-    for idx, review in enumerate(reviews, start=1+offset):
+    # Рассчитываем номера так, чтобы новые отзывы имели большие номера
+    # total_reviews - offset даёт нам номер первого отзыва на текущей странице
+    for idx, review in enumerate(reviews):
+        review_number = total_reviews - offset - idx
         # Показываем порядковый номер на странице, а не id из базы
-        button_text = f"Отзыв №{idx} от @{review['username'] or 'аноним'}"
+        button_text = f"Отзыв №{review_number} от @{review['username'] or 'аноним'}"
         builder.button(text=button_text, callback_data=f"view_review_{review['id']}")
 
     # Логика пагинации
@@ -42,20 +47,23 @@ async def show_reviews_page(message_or_callback, bot: Bot, offset: int):
     
     builder.adjust(1) # Все кнопки в один столбец
 
+    # Формируем текст с статистикой
+    text = f"📝 Отзывы ({total_reviews})"
+    
     # Определяем, откуда пришел запрос
     if isinstance(message_or_callback, Message):
-        await message_or_callback.answer("Последние отзывы:", reply_markup=builder.as_markup())
+        await message_or_callback.answer(text, reply_markup=builder.as_markup())
     elif isinstance(message_or_callback, CallbackQuery):
         msg = message_or_callback.message
         if msg.content_type == 'photo':
             from aiogram.types import InputMediaPhoto
             # Пустая картинка с текстом (Telegram требует media, иначе ошибка)
             await msg.edit_media(
-                media=InputMediaPhoto(media="https://dummyimage.com/1x1/ffffff/ffffff", caption="Последние отзывы:"),
+                media=InputMediaPhoto(media="https://dummyimage.com/1x1/ffffff/ffffff", caption=text),
                 reply_markup=builder.as_markup()
             )
         else:
-            await msg.edit_text("Последние отзывы:", reply_markup=builder.as_markup())
+            await msg.edit_text(text, reply_markup=builder.as_markup())
 
 @router.callback_query(F.data.startswith("reviews_page_"))
 async def paginate_reviews(callback: CallbackQuery, bot: Bot):

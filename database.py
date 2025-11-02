@@ -20,7 +20,8 @@ async def init_db():
             username TEXT,
             text TEXT NOT NULL,
             photo_id TEXT,
-            status TEXT NOT NULL DEFAULT 'pending'
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     """)
     await conn.execute("""
@@ -28,7 +29,10 @@ async def init_db():
             user_id BIGINT PRIMARY KEY,
             username TEXT,
             first_name TEXT,
-            last_name TEXT
+            last_name TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            is_active BOOLEAN DEFAULT TRUE
         );
     """)
     await conn.execute("""
@@ -38,19 +42,58 @@ async def init_db():
             text TEXT NOT NULL
         );
     """)
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS user_activity (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT NOT NULL,
+            action TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+    
+    # Добавляем колонки в существующие таблицы, если их нет
+    try:
+        await conn.execute("ALTER TABLE reviews ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+        await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+        await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+        await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE")
+    except:
+        pass
+    
     await conn.close()
 
 # --- USERS ---
 async def add_or_update_user(user_id, username, first_name, last_name):
     conn = await get_connection()
+    # Проверяем, новый ли это пользователь
+    existing = await conn.fetchval("SELECT user_id FROM users WHERE user_id = $1", user_id)
+    is_new_user = existing is None
+    
     await conn.execute(
         """
-        INSERT INTO users (user_id, username, first_name, last_name)
-        VALUES ($1, $2, $3, $4)
-        ON CONFLICT (user_id) DO UPDATE SET username=EXCLUDED.username, first_name=EXCLUDED.first_name, last_name=EXCLUDED.last_name
+        INSERT INTO users (user_id, username, first_name, last_name, last_activity)
+        VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+        ON CONFLICT (user_id) DO UPDATE SET 
+            username=EXCLUDED.username, 
+            first_name=EXCLUDED.first_name, 
+            last_name=EXCLUDED.last_name,
+            last_activity=CURRENT_TIMESTAMP
         """,
         user_id, username, first_name, last_name
     )
+    
+    # Логируем активность
+    if is_new_user:
+        await conn.execute(
+            "INSERT INTO user_activity (user_id, action) VALUES ($1, $2)",
+            user_id, "user_joined"
+        )
+    else:
+        await conn.execute(
+            "INSERT INTO user_activity (user_id, action) VALUES ($1, $2)",
+            user_id, "user_activity"
+        )
+    
     await conn.close()
 
 async def get_all_users(page=1, limit=10, search_query=None):
@@ -148,3 +191,77 @@ async def get_all_templates():
     rows = await conn.fetch("SELECT name FROM message_templates")
     await conn.close()
     return rows
+
+# --- СТАТИСТИКА ---
+async def get_total_users_count():
+    """Получить общее количество пользователей."""
+    conn = await get_connection()
+    count = await conn.fetchval("SELECT COUNT(*) FROM users")
+    await conn.close()
+    return count
+
+async def get_total_reviews_count():
+    """Получить общее количество отзывов."""
+    conn = await get_connection()
+    count = await conn.fetchval("SELECT COUNT(*) FROM reviews")
+    await conn.close()
+    return count
+
+async def get_daily_new_users():
+    """Получить количество новых пользователей за сегодня."""
+    conn = await get_connection()
+    count = await conn.fetchval(
+        "SELECT COUNT(*) FROM users WHERE DATE(created_at) = CURRENT_DATE"
+    )
+    await conn.close()
+    return count
+
+async def get_daily_reviews():
+    """Получить количество отзывов за сегодня."""
+    conn = await get_connection()
+    count = await conn.fetchval(
+        "SELECT COUNT(*) FROM reviews WHERE DATE(created_at) = CURRENT_DATE"
+    )
+    await conn.close()
+    return count
+
+async def get_active_users_today():
+    """Получить количество активных пользователей сегодня."""
+    conn = await get_connection()
+    count = await conn.fetchval(
+        "SELECT COUNT(*) FROM users WHERE DATE(last_activity) = CURRENT_DATE"
+    )
+    await conn.close()
+    return count
+
+async def get_inactive_users_count():
+    """Получить количество неактивных пользователей (более 7 дней без активности)."""
+    conn = await get_connection()
+    count = await conn.fetchval(
+        "SELECT COUNT(*) FROM users WHERE last_activity < CURRENT_DATE - INTERVAL '7 days'"
+    )
+    await conn.close()
+    return count
+
+async def log_user_activity(user_id, action):
+    """Записать активность пользователя."""
+    conn = await get_connection()
+    await conn.execute(
+        "INSERT INTO user_activity (user_id, action) VALUES ($1, $2)",
+        user_id, action
+    )
+    # Обновляем последнюю активность пользователя
+    await conn.execute(
+        "UPDATE users SET last_activity = CURRENT_TIMESTAMP WHERE user_id = $1",
+        user_id
+    )
+    await conn.close()
+
+async def get_reviews_by_status():
+    """Получить статистику отзывов по статусам."""
+    conn = await get_connection()
+    stats = await conn.fetch(
+        "SELECT status, COUNT(*) as count FROM reviews GROUP BY status"
+    )
+    await conn.close()
+    return {row['status']: row['count'] for row in stats}

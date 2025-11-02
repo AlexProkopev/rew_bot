@@ -33,9 +33,8 @@ class AdminState(StatesGroup):
 @router.message(F.text == "👑 Админ-панель")
 async def admin_panel(message: Message):
     kb = [
-        [KeyboardButton(text="👥 Пользователи")],
-        [KeyboardButton(text="📢 Рассылка")],
-        [KeyboardButton(text="📝 Шаблоны сообщений")],
+        [KeyboardButton(text="👥 Пользователи"), KeyboardButton(text="📊 Статистика")],
+        [KeyboardButton(text="📢 Рассылка"), KeyboardButton(text="📝 Шаблоны сообщений")],
         [KeyboardButton(text="⬅️ Назад в главное меню")]
     ]
     keyboard = ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
@@ -407,4 +406,78 @@ async def view_template_detail(callback: CallbackQuery):
         await callback.message.edit_text(f"Шаблон: **{template['name']}**\n\n{template['text']}", parse_mode="Markdown")
     else:
         await callback.message.edit_text("Шаблон не найден.")
+    await callback.answer()
+
+# --- Статистика ---
+@router.message(F.text == "📊 Статистика")
+async def show_statistics(message: Message):
+    # Получаем все данные параллельно
+    total_users = await db.get_total_users_count()
+    total_reviews = await db.get_total_reviews_count()
+    approved_reviews = await db.count_approved_reviews()
+    daily_new_users = await db.get_daily_new_users()
+    daily_reviews = await db.get_daily_reviews()
+    active_today = await db.get_active_users_today()
+    inactive_users = await db.get_inactive_users_count()
+    reviews_by_status = await db.get_reviews_by_status()
+    
+    # Формируем статистику
+    stats_text = "📊 **Статистика бота**\n\n"
+    
+    # Общие данные
+    stats_text += f"👥 **Пользователи:**\n"
+    stats_text += f"• Всего зарегистрировано: {total_users}\n"
+    stats_text += f"• Новых сегодня: {daily_new_users}\n"
+    stats_text += f"• Активных сегодня: {active_today}\n"
+    stats_text += f"• Неактивных (>7 дней): {inactive_users}\n\n"
+    
+    # Отзывы
+    stats_text += f"📝 **Отзывы:**\n"
+    stats_text += f"• Всего получено: {total_reviews}\n"
+    stats_text += f"• Одобрено: {approved_reviews}\n"
+    stats_text += f"• Получено сегодня: {daily_reviews}\n\n"
+    
+    # Статистика по статусам отзывов
+    if reviews_by_status:
+        stats_text += "📋 **По статусам:**\n"
+        status_names = {
+            'pending': '⏳ На модерации',
+            'approved': '✅ Одобрено',
+            'rejected': '❌ Отклонено'
+        }
+        for status, count in reviews_by_status.items():
+            status_name = status_names.get(status, status)
+            stats_text += f"• {status_name}: {count}\n"
+    
+    # Кнопки для дополнительных действий
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Обновить", callback_data="refresh_stats")],
+        [InlineKeyboardButton(text="📈 Детальная статистика", callback_data="detailed_stats")]
+    ])
+    
+    await message.answer(stats_text, parse_mode="Markdown", reply_markup=kb)
+
+@router.callback_query(F.data == "refresh_stats")
+async def refresh_statistics(callback: CallbackQuery):
+    await show_statistics(callback.message)
+    await callback.answer("Статистика обновлена!")
+
+@router.callback_query(F.data == "detailed_stats")
+async def show_detailed_statistics(callback: CallbackQuery):
+    # Здесь можно добавить более подробную статистику
+    # Например, графики активности по дням, топ пользователей и т.д.
+    
+    detailed_text = "📈 **Детальная статистика**\n\n"
+    detailed_text += "🚧 В разработке...\n\n"
+    detailed_text += "Планируется добавить:\n"
+    detailed_text += "• График активности по дням\n"
+    detailed_text += "• Топ активных пользователей\n"
+    detailed_text += "• Статистика по времени\n"
+    detailed_text += "• Конверсия отзывов\n"
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⬅️ Назад к статистике", callback_data="refresh_stats")]
+    ])
+    
+    await callback.message.edit_text(detailed_text, parse_mode="Markdown", reply_markup=kb)
     await callback.answer()

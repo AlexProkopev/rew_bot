@@ -51,6 +51,9 @@ async def skip_photo_step(callback: CallbackQuery, state: FSMContext, bot: Bot):
     
     review_id = await db.add_review(user.id, user.username, review_text)
     
+    # Логируем создание отзыва
+    await db.log_user_activity(user.id, "review_created")
+    
     await state.clear()
     await callback.message.edit_text("✅ Спасибо! Ваш отзыв отправлен на проверку.")
     
@@ -95,6 +98,9 @@ async def review_photo_received(message: Message, state: FSMContext, bot: Bot):
     
     # Сохраняем оригинальный file_id в БД
     review_id = await db.add_review(user.id, user.username, review_text, photo_id=photo.file_id)
+    
+    # Логируем создание отзыва с фото
+    await db.log_user_activity(user.id, "review_with_photo_created")
     
     await state.clear()
     await message.answer("✅ Спасибо! Ваш отзыв с фото отправлен на проверку.")
