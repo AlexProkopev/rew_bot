@@ -11,7 +11,10 @@ router = Router()
 
 async def format_review_message(review):
     """Форматирует сообщение с отзывом."""
-    text = f"Отзыв от: @{review['username'] or 'аноним'}\n\n{review['text']}"
+    rating = review.get('rating', 5)
+    stars = "⭐" * rating
+    text = f"Отзыв от: @{review['username'] or 'аноним'}\n"
+    text += f"Оценка: {stars} ({rating}/5)\n\n{review['text']}"
     return text
 
 @router.message(F.text == "👀 Посмотреть отзывы")
@@ -47,8 +50,16 @@ async def show_reviews_page(message_or_callback, bot: Bot, offset: int):
     
     builder.adjust(1) # Все кнопки в один столбец
 
+    # Получаем среднюю оценку
+    avg_rating = await db.get_average_rating()
+    stars_display = "⭐" * int(round(avg_rating)) if avg_rating > 0 else "Нет оценок"
+    
     # Формируем текст с статистикой
-    text = f"📝 Отзывы ({total_reviews})"
+    text = f"📝 Отзывы (всего одобрено: {total_reviews})\n"
+    if avg_rating > 0:
+        text += f"⭐ Средняя оценка: {stars_display} ({avg_rating:.1f}/5)"
+    else:
+        text += "⭐ Средняя оценка: пока нет оценок"
     
     # Определяем, откуда пришел запрос
     if isinstance(message_or_callback, Message):

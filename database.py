@@ -20,6 +20,7 @@ async def init_db():
             username TEXT,
             text TEXT NOT NULL,
             photo_id TEXT,
+            rating INTEGER DEFAULT 5,
             status TEXT NOT NULL DEFAULT 'pending',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
@@ -54,6 +55,7 @@ async def init_db():
     # Добавляем колонки в существующие таблицы, если их нет
     try:
         await conn.execute("ALTER TABLE reviews ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+        await conn.execute("ALTER TABLE reviews ADD COLUMN IF NOT EXISTS rating INTEGER DEFAULT 5")
         await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
         await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
         await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE")
@@ -128,15 +130,15 @@ async def get_all_user_ids():
     return [row["user_id"] for row in rows]
 
 # --- REVIEWS ---
-async def add_review(user_id, username, text, photo_id=None):
+async def add_review(user_id, username, text, photo_id=None, rating=5):
     conn = await get_connection()
     row = await conn.fetchrow(
         """
-        INSERT INTO reviews (user_id, username, text, photo_id)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO reviews (user_id, username, text, photo_id, rating)
+        VALUES ($1, $2, $3, $4, $5)
         RETURNING id
         """,
-        user_id, username, text, photo_id
+        user_id, username, text, photo_id, rating
     )
     await conn.close()
     return row["id"]
@@ -265,3 +267,21 @@ async def get_reviews_by_status():
     )
     await conn.close()
     return {row['status']: row['count'] for row in stats}
+
+async def get_average_rating():
+    """Получить среднюю оценку одобренных отзывов."""
+    conn = await get_connection()
+    result = await conn.fetchval(
+        "SELECT AVG(rating)::NUMERIC(3,1) FROM reviews WHERE status = 'approved'"
+    )
+    await conn.close()
+    return float(result) if result else 0.0
+
+async def get_rating_distribution():
+    """Получить распределение оценок."""
+    conn = await get_connection()
+    stats = await conn.fetch(
+        "SELECT rating, COUNT(*) as count FROM reviews WHERE status = 'approved' GROUP BY rating ORDER BY rating"
+    )
+    await conn.close()
+    return {row['rating']: row['count'] for row in stats}

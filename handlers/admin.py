@@ -75,18 +75,20 @@ async def forward_as_review(message: Message, bot: Bot):
         last_name=forwarded_user.last_name
     )
     
-    # Добавляем отзыв сразу как одобренный
+    # Добавляем отзыв сразу как одобренный с рейтингом 5 звезд
     review_id = await db.add_review(
         user_id=forwarded_user.id,
         username=forwarded_user.username,
         text=text,
-        photo_id=photo_id
+        photo_id=photo_id,
+        rating=5  # Автоматически ставим 5 звезд для пересылаемых отзывов
     )
     await db.update_review_status(review_id, "approved")
     
     # Подтверждение админу
     confirm_text = f"✅ Отзыв #{review_id} добавлен и одобрен!\n\n"
     confirm_text += f"От: @{forwarded_user.username or forwarded_user.first_name}\n"
+    confirm_text += f"Оценка: ⭐⭐⭐⭐⭐ (5/5) - автоматически\n"
     if text:
         confirm_text += f"Текст: {text[:100]}{'...' if len(text) > 100 else ''}"
     if photo_id:
@@ -420,6 +422,8 @@ async def show_statistics(message: Message):
     active_today = await db.get_active_users_today()
     inactive_users = await db.get_inactive_users_count()
     reviews_by_status = await db.get_reviews_by_status()
+    avg_rating = await db.get_average_rating()
+    rating_distribution = await db.get_rating_distribution()
     
     # Формируем статистику
     stats_text = "📊 **Статистика бота**\n\n"
@@ -436,6 +440,20 @@ async def show_statistics(message: Message):
     stats_text += f"• Всего получено: {total_reviews}\n"
     stats_text += f"• Одобрено: {approved_reviews}\n"
     stats_text += f"• Получено сегодня: {daily_reviews}\n\n"
+    
+    # Рейтинги
+    if avg_rating > 0:
+        stars_display = "⭐" * int(round(avg_rating))
+        stats_text += f"⭐ **Оценки:**\n"
+        stats_text += f"• Средняя оценка: {stars_display} ({avg_rating:.1f}/5)\n"
+        
+        if rating_distribution:
+            stats_text += "• Распределение:\n"
+            for rating in sorted(rating_distribution.keys(), reverse=True):
+                count = rating_distribution[rating]
+                stars = "⭐" * rating
+                stats_text += f"  {stars} ({rating}): {count} отз.\n"
+        stats_text += "\n"
     
     # Статистика по статусам отзывов
     if reviews_by_status:
