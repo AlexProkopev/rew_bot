@@ -7,6 +7,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.filters import Filter
 import database as db
 from config import ADMIN_ID
+from utils.loader import loading_statistics, loading_user_data, MailingProgressLoader
 
 # --- Фильтр для проверки админа ---
 class AdminFilter(Filter):
@@ -201,10 +202,19 @@ async def display_users_page(message_or_callback, page=1, search_query=None):
 
 @router.callback_query(F.data.startswith("users_page_"))
 async def paginate_users(callback: CallbackQuery):
-    parts = callback.data.split("_")
-    page = int(parts[2])
-    search_query = parts[3] if len(parts) > 3 and parts[3] else None
-    await display_users_page(callback, page=page, search_query=search_query)
+    # Показываем лоадер
+    loader = await loading_user_data(callback)
+    
+    try:
+        parts = callback.data.split("_")
+        page = int(parts[2])
+        search_query = parts[3] if len(parts) > 3 and parts[3] else None
+        await display_users_page(callback, page=page, search_query=search_query)
+        await loader.stop()
+    except Exception as e:
+        await loader.stop("❌ Ошибка загрузки пользователей")
+        raise e
+        
     await callback.answer()
 
 @router.callback_query(F.data == "search_user")
@@ -321,19 +331,29 @@ async def mailing_confirm(callback: CallbackQuery, state: FSMContext, bot: Bot):
     
     user_ids = await db.get_all_user_ids()
     
-    await callback.message.edit_text(f"Начинаю рассылку... Всего пользователей: {len(user_ids)}")
+    # Создаем прогресс-лоадер для рассылки
+    progress_loader = MailingProgressLoader(callback.message, len(user_ids))
     
     sent_count = 0
     failed_count = 0
-    for user_id in user_ids:
+    
+    for i, user_id in enumerate(user_ids):
         try:
             await bot.send_message(user_id, text)
             sent_count += 1
             await asyncio.sleep(0.1) # Чтобы не превышать лимиты Telegram
         except Exception:
             failed_count += 1
-            
-    await callback.message.answer(f"✅ Рассылка завершена!\n\nОтправлено: {sent_count}\nНе удалось отправить: {failed_count}")
+        
+        # Обновляем прогресс каждые 5 пользователей или в конце
+        if (i + 1) % 5 == 0 or i == len(user_ids) - 1:
+            await progress_loader.update_progress(sent_count, failed_count)
+    
+    # Завершаем рассылку
+    await progress_loader.finish()
+    
+    # Небольшая пауза перед возвратом в админ-панель
+    await asyncio.sleep(2)
     await admin_panel(callback.message) # Возвращаемся в админ-панель
 
 @router.callback_query(F.data == "cancel_mailing", AdminState.mailing_confirmation)
@@ -477,7 +497,17 @@ async def show_statistics(message: Message):
 
 @router.callback_query(F.data == "refresh_stats")
 async def refresh_statistics(callback: CallbackQuery):
-    await show_statistics(callback.message)
+    # Показываем лоадер
+    loader = await loading_statistics(callback)
+    
+    try:
+        # Имитируем команду для показа статистики
+        await show_statistics(callback.message)
+        await loader.stop()  # Лоадер остановится автоматически при show_statistics
+    except Exception as e:
+        await loader.stop("❌ Ошибка обновления статистики")
+        raise e
+        
     await callback.answer("Статистика обновлена!")
 
 @router.callback_query(F.data == "detailed_stats")

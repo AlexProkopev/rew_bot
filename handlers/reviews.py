@@ -9,6 +9,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, BufferedIn
 from handlers.admin import get_admin_review_keyboard
 import database as db
 from config import ADMIN_ID
+from utils.loader import CallbackLoadingAnimation, loading_photo_upload
 
 router = Router()
 
@@ -70,75 +71,96 @@ async def review_text_received(message: Message, state: FSMContext):
 # --- Пропуск фото ---
 @router.callback_query(F.data == "skip_photo", ReviewState.waiting_for_review_photo)
 async def skip_photo_step(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    data = await state.get_data()
-    review_text = data.get("review_text")
-    rating = data.get("rating", 5)
-    user = callback.from_user
+    # Показываем лоадер
+    loader = CallbackLoadingAnimation(callback, "Отправляем отзыв")
+    await loader.start()
     
-    review_id = await db.add_review(user.id, user.username, review_text, rating=rating)
-    
-    # Логируем создание отзыва
-    await db.log_user_activity(user.id, "review_created")
-    
-    await state.clear()
-    await callback.message.edit_text("✅ Спасибо! Ваш отзыв отправлен на проверку.")
-    
-    # Уведомление админу с кнопкой удаления
-    admin_kb = get_admin_review_keyboard(review_id)
-    stars = "⭐" * rating
-    await bot.send_message(
-        ADMIN_ID,
-        f"Новый отзыв на проверку от @{user.username}:\n{stars} ({rating}/5)\n\n{review_text}",
-        reply_markup=admin_kb
-    )
+    try:
+        data = await state.get_data()
+        review_text = data.get("review_text")
+        rating = data.get("rating", 5)
+        user = callback.from_user
+        
+        review_id = await db.add_review(user.id, user.username, review_text, rating=rating)
+        
+        # Логируем создание отзыва
+        await db.log_user_activity(user.id, "review_created")
+        
+        await state.clear()
+        
+        # Уведомление админу с кнопкой удаления
+        admin_kb = get_admin_review_keyboard(review_id)
+        stars = "⭐" * rating
+        await bot.send_message(
+            ADMIN_ID,
+            f"Новый отзыв на проверку от @{user.username}:\n{stars} ({rating}/5)\n\n{review_text}",
+            reply_markup=admin_kb
+        )
+        
+        await loader.stop("✅ Спасибо! Ваш отзыв отправлен на проверку.")
+        
+    except Exception as e:
+        await loader.stop("❌ Ошибка отправки отзыва")
+        raise e
+        
     await callback.answer()
 
 # --- Получение фото ---
 @router.message(ReviewState.waiting_for_review_photo, F.photo)
 async def review_photo_received(message: Message, state: FSMContext, bot: Bot):
-    data = await state.get_data()
-    review_text = data.get("review_text")
-    rating = data.get("rating", 5)
-    user = message.from_user
-    photo = message.photo[-1]
-
-    # Скачиваем фото
-    photo_file = await bot.get_file(photo.file_id)
-    photo_bytes = await bot.download_file(photo_file.file_path)
-
-    # Размываем фото
-    img = Image.open(photo_bytes)
-    blurred_img = img.filter(ImageFilter.GaussianBlur(15))
+    # Отправляем сообщение с лоадером
+    loading_msg = await message.answer("🔄 Обрабатываем фото и отправляем отзыв...")
+    loader = await loading_photo_upload(loading_msg)
     
-    # Сохраняем размытое изображение в байты
-    blurred_photo_stream = io.BytesIO()
-    blurred_img.save(blurred_photo_stream, format='JPEG')
-    blurred_photo_stream.seek(0)
+    try:
+        data = await state.get_data()
+        review_text = data.get("review_text")
+        rating = data.get("rating", 5)
+        user = message.from_user
+        photo = message.photo[-1]
 
-    # Отправляем размытое фото админу и получаем его file_id
-    blurred_photo_stream.seek(0)
-    input_file = BufferedInputFile(blurred_photo_stream.read(), filename="blurred.jpg")
-    stars = "⭐" * rating
-    sent_photo = await bot.send_photo(
-        chat_id=ADMIN_ID,
-        photo=input_file,
-        caption=f"Новый отзыв на проверку от @{user.username}:\n{stars} ({rating}/5)\n\n{review_text}"
-    )
-    
-    # Сохраняем оригинальный file_id в БД
-    review_id = await db.add_review(user.id, user.username, review_text, photo_id=photo.file_id, rating=rating)
-    
-    # Логируем создание отзыва с фото
-    await db.log_user_activity(user.id, "review_with_photo_created")
-    
-    await state.clear()
-    await message.answer("✅ Спасибо! Ваш отзыв с фото отправлен на проверку.")
+        # Скачиваем фото
+        photo_file = await bot.get_file(photo.file_id)
+        photo_bytes = await bot.download_file(photo_file.file_path)
 
-    # Клавиатура для админа с кнопкой удаления
-    admin_kb = get_admin_review_keyboard(review_id)
-    await bot.edit_message_caption(
-        chat_id=ADMIN_ID,
-        message_id=sent_photo.message_id,
-        caption=sent_photo.caption,
-        reply_markup=admin_kb
-    )
+        # Размываем фото
+        img = Image.open(photo_bytes)
+        blurred_img = img.filter(ImageFilter.GaussianBlur(15))
+        
+        # Сохраняем размытое изображение в байты
+        blurred_photo_stream = io.BytesIO()
+        blurred_img.save(blurred_photo_stream, format='JPEG')
+        blurred_photo_stream.seek(0)
+
+        # Отправляем размытое фото админу и получаем его file_id
+        blurred_photo_stream.seek(0)
+        input_file = BufferedInputFile(blurred_photo_stream.read(), filename="blurred.jpg")
+        stars = "⭐" * rating
+        sent_photo = await bot.send_photo(
+            chat_id=ADMIN_ID,
+            photo=input_file,
+            caption=f"Новый отзыв на проверку от @{user.username}:\n{stars} ({rating}/5)\n\n{review_text}"
+        )
+        
+        # Сохраняем оригинальный file_id в БД
+        review_id = await db.add_review(user.id, user.username, review_text, photo_id=photo.file_id, rating=rating)
+        
+        # Логируем создание отзыва с фото
+        await db.log_user_activity(user.id, "review_with_photo_created")
+        
+        await state.clear()
+        
+        # Клавиатура для админа с кнопкой удаления
+        admin_kb = get_admin_review_keyboard(review_id)
+        await bot.edit_message_caption(
+            chat_id=ADMIN_ID,
+            message_id=sent_photo.message_id,
+            caption=sent_photo.caption,
+            reply_markup=admin_kb
+        )
+        
+        await loader.stop("✅ Спасибо! Ваш отзыв с фото отправлен на проверку.")
+        
+    except Exception as e:
+        await loader.stop("❌ Ошибка обработки фото")
+        raise e
