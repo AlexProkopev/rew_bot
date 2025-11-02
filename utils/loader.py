@@ -77,8 +77,8 @@ class CallbackLoadingAnimation:
             return
         
         self.is_running = True
-        # Сразу показываем первый кадр
-        await self.message.edit_text(f"🔄 {self.initial_text}")
+        # Сразу показываем первый кадр с более заметным текстом
+        await self.message.edit_text(f"🔄 {self.initial_text}...")
         self.animation_task = asyncio.create_task(self._animate())
     
     async def stop(self, final_text: str = None, reply_markup=None):
@@ -101,8 +101,8 @@ class CallbackLoadingAnimation:
                 pass
     
     async def _animate(self):
-        """Анимация с различными эмодзи."""
-        frames = ["🔄", "⏳", "🔄", "⌛"]
+        """Анимация с различными эмодзи - более заметная."""
+        frames = ["🔄", "🔃", "🔄", "🔃"]  # Те же, что в LoadingAnimation
         dots = ["", ".", "..", "..."]
         
         frame_idx = 0
@@ -117,10 +117,10 @@ class CallbackLoadingAnimation:
                 await self.message.edit_text(text)
                 
                 frame_idx += 1
-                if frame_idx % 2 == 0:
+                if frame_idx % 2 == 0:  # Меняем точки медленнее
                     dot_idx += 1
                 
-                await asyncio.sleep(0.6)
+                await asyncio.sleep(0.5)  # Быстрее для более заметной анимации
                 
             except Exception:
                 break
@@ -128,37 +128,37 @@ class CallbackLoadingAnimation:
 # Готовые лоадеры для разных операций
 async def loading_reviews(callback: CallbackQuery):
     """Лоадер для загрузки отзывов."""
-    loader = CallbackLoadingAnimation(callback, "Загружаем отзывы")
+    loader = CallbackLoadingAnimation(callback, "📄 Загружаем отзывы")
     await loader.start()
     return loader
 
 async def loading_statistics(callback: CallbackQuery):
     """Лоадер для загрузки статистики."""
-    loader = CallbackLoadingAnimation(callback, "Собираем статистику")
+    loader = CallbackLoadingAnimation(callback, "📊 Собираем статистику")
     await loader.start()
     return loader
 
 async def loading_photo(callback: CallbackQuery):
     """Лоадер для загрузки фото."""
-    loader = CallbackLoadingAnimation(callback, "Загружаем фото")
+    loader = CallbackLoadingAnimation(callback, "🖼️ Загружаем фото")
     await loader.start()
     return loader
 
 async def loading_latest_reviews(callback: CallbackQuery):
     """Лоадер для загрузки последних отзывов."""
-    loader = CallbackLoadingAnimation(callback, "Готовим последние отзывы")
+    loader = CallbackLoadingAnimation(callback, "🌟 Готовим последние отзывы")
     await loader.start()
     return loader
 
 async def loading_user_data(callback: CallbackQuery):
     """Лоадер для загрузки данных пользователей."""
-    loader = CallbackLoadingAnimation(callback, "Загружаем пользователей")
+    loader = CallbackLoadingAnimation(callback, "👥 Загружаем пользователей")
     await loader.start()
     return loader
 
 async def loading_photo_upload(message: Message):
     """Лоадер для загрузки фото (для обычных сообщений)."""
-    loader = LoadingAnimation(message, "Обрабатываем фото и отправляем отзыв")
+    loader = LoadingAnimation(message, "📸 Обрабатываем фото и отправляем отзыв")
     await loader.start()
     return loader
 
