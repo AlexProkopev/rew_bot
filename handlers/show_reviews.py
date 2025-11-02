@@ -14,7 +14,9 @@ async def format_review_message(review):
     """Форматирует сообщение с отзывом."""
     rating = review.get('rating', 5)
     stars = "⭐" * rating
-    text = f"Отзыв от: @{review['username'] or 'аноним'}\n"
+    username = review['username'] or 'аноним'
+    photo_emoji = " 📸" if review['photo_id'] else ""
+    text = f"Отзыв от: @{username}{photo_emoji}\n"
     text += f"Оценка: {stars} ({rating}/5)\n\n{review['text']}"
     return text
 
@@ -57,7 +59,9 @@ async def show_reviews_page(message_or_callback, bot: Bot, offset: int):
     for idx, review in enumerate(reviews):
         review_number = total_reviews - offset - idx
         # Показываем порядковый номер на странице, а не id из базы
-        button_text = f"Отзыв №{review_number} от @{review['username'] or 'аноним'}"
+        username = review['username'] or 'аноним'
+        photo_emoji = " 📸" if review['photo_id'] else ""
+        button_text = f"Отзыв №{review_number} от @{username}{photo_emoji}"
         # Передаем offset в callback_data для возврата на правильную страницу
         builder.button(text=button_text, callback_data=f"view_review_{review['id']}_{offset}")
 
@@ -258,8 +262,10 @@ async def show_latest_5_reviews(callback: CallbackQuery, bot: Bot):
             review_number = total_reviews - idx + 1
             rating = review.get('rating', 5)
             stars = "⭐" * rating
+            username = review['username'] or 'аноним'
+            photo_emoji = " 📸" if review['photo_id'] else ""
             
-            message_text += f"**{review_number}. Отзыв от @{review['username'] or 'аноним'}**\n"
+            message_text += f"**{review_number}. Отзыв от @{username}{photo_emoji}**\n"
             message_text += f"Оценка: {stars} ({rating}/5)\n\n"
             message_text += f"{review['text']}\n"
             
