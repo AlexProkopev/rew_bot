@@ -8,6 +8,7 @@ from aiogram.filters import Filter
 import database as db
 from config import ADMIN_ID
 from utils.loader import loading_statistics, loading_user_data, MailingProgressLoader
+from utils.products import get_product_title
 import asyncio
 
 # --- Фильтр для проверки админа ---
@@ -83,13 +84,15 @@ async def forward_as_review(message: Message, bot: Bot):
         username=forwarded_user.username,
         text=text,
         photo_id=photo_id,
-        rating=5  # Автоматически ставим 5 звезд для пересылаемых отзывов
+        blurred_photo_id=photo_id,
+        rating=5,  # Автоматически ставим 5 звезд для пересылаемых отзывов
     )
     await db.update_review_status(review_id, "approved")
     
     # Подтверждение админу
     confirm_text = f"✅ Отзыв #{review_id} добавлен и одобрен!\n\n"
     confirm_text += f"От: @{forwarded_user.username or forwarded_user.first_name}\n"
+    confirm_text += f"Товар: {get_product_title(None)}\n"
     confirm_text += f"Оценка: ⭐⭐⭐⭐⭐ (5/5) - автоматически\n"
     if text:
         confirm_text += f"Текст: {text[:100]}{'...' if len(text) > 100 else ''}"
@@ -550,8 +553,10 @@ async def broadcast_published_review(review_id: int, bot: Bot):
         if not user_ids:
             return
 
-        username = review.get('username') or str(review.get('user_id'))
-        text = f"Новый отзыв от @{username}"
+        raw_username = review.get('username')
+        author = f"@{raw_username}" if raw_username else str(review.get('user_id'))
+        product_title = get_product_title(review.get('product_code'))
+        text = f"Новый отзыв о {product_title}\nОт: {author}"
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="Прочитать", callback_data=f"view_review_{review_id}_0")]
         ])

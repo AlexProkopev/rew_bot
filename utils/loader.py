@@ -77,8 +77,7 @@ class CallbackLoadingAnimation:
             return
         
         self.is_running = True
-        # Сразу показываем первый кадр с более заметным текстом
-        await self.message.edit_text(f"🔄 {self.initial_text}...")
+        await self._update_message(f"🔄 {self.initial_text}...")
         self.animation_task = asyncio.create_task(self._animate())
     
     async def stop(self, final_text: str = None, reply_markup=None):
@@ -92,13 +91,7 @@ class CallbackLoadingAnimation:
                 pass
         
         if final_text:
-            try:
-                if reply_markup:
-                    await self.message.edit_text(final_text, reply_markup=reply_markup)
-                else:
-                    await self.message.edit_text(final_text)
-            except:
-                pass
+            await self._update_message(final_text, reply_markup)
     
     async def _animate(self):
         """Анимация с различными эмодзи - более заметная."""
@@ -114,7 +107,7 @@ class CallbackLoadingAnimation:
                 current_dots = dots[dot_idx % len(dots)]
                 
                 text = f"{current_frame} {self.initial_text}{current_dots}"
-                await self.message.edit_text(text)
+                await self._update_message(text)
                 
                 frame_idx += 1
                 if frame_idx % 2 == 0:  # Меняем точки медленнее
@@ -124,6 +117,24 @@ class CallbackLoadingAnimation:
                 
             except Exception:
                 break
+
+    async def _update_message(self, text: str, reply_markup=None):
+        """Аккуратно обновляет сообщение в зависимости от его типа."""
+        try:
+            content_type = getattr(self.message, "content_type", "text")
+            if content_type == "text":
+                await self.message.edit_text(text, reply_markup=reply_markup)
+                return
+            if content_type in {"photo", "video", "animation", "document"}:
+                await self.message.edit_caption(caption=text, reply_markup=reply_markup)
+                return
+        except Exception:
+            pass
+        # Fallback: пытаемся изменить текст (если Telegram уже преобразовал сообщение)
+        try:
+            await self.message.edit_text(text, reply_markup=reply_markup)
+        except Exception:
+            pass
 
 # Готовые лоадеры для разных операций
 async def loading_reviews(callback: CallbackQuery):
