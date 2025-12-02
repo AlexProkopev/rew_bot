@@ -10,6 +10,9 @@ from config import ADMIN_ID
 from utils.loader import loading_statistics, loading_user_data, MailingProgressLoader
 import asyncio
 
+# Добавляем 1000 к количеству отзывов для отображения
+REVIEWS_COUNT_OFFSET = 1000
+
 # --- Фильтр для проверки админа ---
 class AdminFilter(Filter):
     async def __call__(self, message: Message) -> bool:
@@ -463,8 +466,8 @@ async def show_statistics(message: Message):
     
     # Отзывы
     stats_text += f"📝 **Отзывы:**\n"
-    stats_text += f"• Всего получено: {total_reviews}\n"
-    stats_text += f"• Одобрено: {approved_reviews}\n"
+    stats_text += f"• Всего получено: {total_reviews + REVIEWS_COUNT_OFFSET}\n"
+    stats_text += f"• Одобрено: {approved_reviews + REVIEWS_COUNT_OFFSET}\n"
     stats_text += f"• Получено сегодня: {daily_reviews}\n\n"
     
     # Рейтинги

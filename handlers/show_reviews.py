@@ -7,6 +7,8 @@ from config import ADMIN_ID
 import database as db
 from utils.loader import loading_reviews, loading_photo, loading_latest_reviews, LoadingAnimation
 
+# Добавляем 1000 к количеству отзывов для отображения
+REVIEWS_COUNT_OFFSET = 1000
 
 router = Router()
 
@@ -55,9 +57,9 @@ async def show_reviews_page(message_or_callback, bot: Bot, offset: int):
     builder = InlineKeyboardBuilder()
     
     # Рассчитываем номера так, чтобы новые отзывы имели большие номера
-    # total_reviews - offset даёт нам номер первого отзыва на текущей странице
+    # (total_reviews + REVIEWS_COUNT_OFFSET) - offset даёт нам номер первого отзыва на текущей странице
     for idx, review in enumerate(reviews):
-        review_number = total_reviews - offset - idx
+        review_number = (total_reviews + REVIEWS_COUNT_OFFSET) - offset - idx
         # Показываем порядковый номер на странице, а не id из базы
         username = review['username'] or 'аноним'
         photo_emoji = " 📸" if review['photo_id'] else ""
@@ -81,7 +83,7 @@ async def show_reviews_page(message_or_callback, bot: Bot, offset: int):
     stars_display = "⭐" * int(round(avg_rating)) if avg_rating > 0 else "Нет оценок"
     
     # Формируем текст с статистикой
-    text = f"📝 Отзывы ({total_reviews})\n"
+    text = f"📝 Отзывы ({total_reviews + REVIEWS_COUNT_OFFSET})\n"
     if avg_rating > 0:
         text += f"⭐ Средняя оценка: {stars_display} ({avg_rating:.1f}/5)"
     else:
@@ -240,7 +242,7 @@ async def show_latest_5_reviews(callback: CallbackQuery, bot: Bot):
         
         # Формируем большое сообщение со всеми отзывами
         message_text = f"🌟 **Последние 5 отзывов**\n\n"
-        message_text += f"📊 Всего: {total_reviews}\n"
+        message_text += f"📊 Всего: {total_reviews + REVIEWS_COUNT_OFFSET}\n"
         if avg_rating > 0:
             message_text += f"⭐ Средняя оценка: {stars_display} ({avg_rating:.1f}/5)\n\n"
         else:
@@ -249,7 +251,7 @@ async def show_latest_5_reviews(callback: CallbackQuery, bot: Bot):
         message_text += "─" * 30 + "\n\n"
         
         for idx, review in enumerate(reviews, 1):
-            review_number = total_reviews - idx + 1
+            review_number = (total_reviews + REVIEWS_COUNT_OFFSET) - idx + 1
             rating = review.get('rating', 5)
             stars = "⭐" * rating
             raw_username = review.get('username')
