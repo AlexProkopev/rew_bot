@@ -20,9 +20,7 @@ async def init_db():
             username TEXT,
             text TEXT NOT NULL,
             photo_id TEXT,
-            blurred_photo_id TEXT,
             rating INTEGER DEFAULT 5,
-            product_code TEXT,
             status TEXT NOT NULL DEFAULT 'pending',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
@@ -58,8 +56,6 @@ async def init_db():
     try:
         await conn.execute("ALTER TABLE reviews ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
         await conn.execute("ALTER TABLE reviews ADD COLUMN IF NOT EXISTS rating INTEGER DEFAULT 5")
-        await conn.execute("ALTER TABLE reviews ADD COLUMN IF NOT EXISTS blurred_photo_id TEXT")
-        await conn.execute("ALTER TABLE reviews ADD COLUMN IF NOT EXISTS product_code TEXT")
         await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
         await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
         await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE")
@@ -134,15 +130,15 @@ async def get_all_user_ids():
     return [row["user_id"] for row in rows]
 
 # --- REVIEWS ---
-async def add_review(user_id, username, text, photo_id=None, blurred_photo_id=None, rating=5, product_code=None):
+async def add_review(user_id, username, text, photo_id=None, rating=5):
     conn = await get_connection()
     row = await conn.fetchrow(
         """
-        INSERT INTO reviews (user_id, username, text, photo_id, blurred_photo_id, rating, product_code)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        INSERT INTO reviews (user_id, username, text, photo_id, rating)
+        VALUES ($1, $2, $3, $4, $5)
         RETURNING id
         """,
-        user_id, username, text, photo_id, blurred_photo_id, rating, product_code
+        user_id, username, text, photo_id, rating
     )
     await conn.close()
     return row["id"]
@@ -152,16 +148,6 @@ async def get_review(review_id):
     row = await conn.fetchrow("SELECT * FROM reviews WHERE id = $1", review_id)
     await conn.close()
     return row
-
-
-async def update_blurred_photo_id(review_id, blurred_photo_id):
-    conn = await get_connection()
-    await conn.execute(
-        "UPDATE reviews SET blurred_photo_id = $1 WHERE id = $2",
-        blurred_photo_id,
-        review_id,
-    )
-    await conn.close()
 
 async def update_review_status(review_id, status):
     conn = await get_connection()

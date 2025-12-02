@@ -6,7 +6,6 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from config import ADMIN_ID
 import database as db
 from utils.loader import loading_reviews, loading_photo, loading_latest_reviews, LoadingAnimation
-from utils.products import get_product_title
 
 
 router = Router()
@@ -15,12 +14,9 @@ async def format_review_message(review):
     """Форматирует сообщение с отзывом."""
     rating = review.get('rating', 5)
     stars = "⭐" * rating
-    product_title = get_product_title(review.get('product_code'))
-    raw_username = review.get('username')
-    username = f"@{raw_username}" if raw_username else 'аноним'
+    username = review['username'] or 'аноним'
     photo_emoji = " 📸" if review['photo_id'] else ""
-    text = f"Товар: {product_title}\n"
-    text += f"Отзыв от: {username}{photo_emoji}\n"
+    text = f"Отзыв от: @{username}{photo_emoji}\n"
     text += f"Оценка: {stars} ({rating}/5)\n\n{review['text']}"
     return text
 
@@ -63,9 +59,9 @@ async def show_reviews_page(message_or_callback, bot: Bot, offset: int):
     for idx, review in enumerate(reviews):
         review_number = total_reviews - offset - idx
         # Показываем порядковый номер на странице, а не id из базы
-        product_title = get_product_title(review.get('product_code'))
+        username = review['username'] or 'аноним'
         photo_emoji = " 📸" if review['photo_id'] else ""
-        button_text = f"№{review_number} • {product_title}{photo_emoji}"
+        button_text = f"Отзыв №{review_number} от @{username}{photo_emoji}"
         # Передаем offset в callback_data для возврата на правильную страницу
         builder.button(text=button_text, callback_data=f"view_review_{review['id']}_{offset}")
 
@@ -195,42 +191,12 @@ async def show_review_photo(callback: CallbackQuery, bot: Bot):
 
         from aiogram.types import InputMediaPhoto
 
-        blurred_id = review.get('blurred_photo_id')
-        if blurred_id:
-            await loader.stop()
-            await callback.message.edit_media(
-                media=InputMediaPhoto(media=blurred_id, caption=text),
-                reply_markup=reply_markup
-            )
-            await callback.answer()
-            return
-
-        # Скачиваем фото, блюрим и отправляем как BufferedInputFile
-        from aiogram.types import BufferedInputFile
-        import io
-        from PIL import Image, ImageFilter
-        photo_file = await bot.get_file(review['photo_id'])
-        photo_bytes = await bot.download_file(photo_file.file_path)
-        img = Image.open(photo_bytes)
-        blurred_img = img.filter(ImageFilter.GaussianBlur(15))
-        blurred_photo_stream = io.BytesIO()
-        blurred_img.save(blurred_photo_stream, format='JPEG')
-        blurred_photo_stream.seek(0)
-        input_file = BufferedInputFile(blurred_photo_stream.read(), filename="blurred.jpg")
-        
         await loader.stop()  # Останавливаем лоадер перед показом фото
         
-        updated_message = await callback.message.edit_media(
-            media=InputMediaPhoto(media=input_file, caption=text),
+        await callback.message.edit_media(
+            media=InputMediaPhoto(media=review['photo_id'], caption=text),
             reply_markup=reply_markup
         )
-
-        try:
-            blurred_file_id = updated_message.photo[-1].file_id if updated_message.photo else None
-            if blurred_file_id:
-                await db.update_blurred_photo_id(review_id, blurred_file_id)
-        except Exception:
-            pass
         
     except Exception as e:
         await loader.stop("❌ Фото временно недоступно")
@@ -286,13 +252,11 @@ async def show_latest_5_reviews(callback: CallbackQuery, bot: Bot):
             review_number = total_reviews - idx + 1
             rating = review.get('rating', 5)
             stars = "⭐" * rating
-            product_title = get_product_title(review.get('product_code'))
             raw_username = review.get('username')
             username_display = f"@{raw_username}" if raw_username else 'аноним'
             photo_emoji = " 📸" if review['photo_id'] else ""
 
-            message_text += f"**{review_number}. {product_title}{photo_emoji}**\n"
-            message_text += f"Автор: {username_display}\n"
+            message_text += f"**{review_number}. Отзыв от {username_display}{photo_emoji}**\n"
             message_text += f"Оценка: {stars} ({rating}/5)\n\n"
             message_text += f"{review['text']}\n"
             
