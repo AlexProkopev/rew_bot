@@ -3,6 +3,9 @@
 
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+import os
+import uuid
+from pathlib import Path
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
@@ -115,6 +118,18 @@ async def review_photo_received(message: Message, state: FSMContext, bot: Bot):
         user = message.from_user
         photo = message.photo[-1]
 
+        # Сохраняем файл локально, чтобы фото было доступно даже при смене токена бота
+        media_dir = Path("media/photos")
+        media_dir.mkdir(parents=True, exist_ok=True)
+        unique_name = f"{uuid.uuid4().hex}.jpg"
+        file_path = media_dir / unique_name
+
+        # Скачиваем файл и сохраняем
+        photo_file = await bot.get_file(photo.file_id)
+        photo_bytes = await bot.download_file(photo_file.file_path)
+        with open(file_path, "wb") as f:
+            f.write(photo_bytes.read())
+
         stars = "⭐" * rating
         caption = f"Новый отзыв на проверку от @{user.username}:\n{stars} ({rating}/5)\n\n{review_text}"
         sent_photo = await bot.send_photo(chat_id=ADMIN_ID, photo=photo.file_id, caption=caption)
@@ -124,6 +139,7 @@ async def review_photo_received(message: Message, state: FSMContext, bot: Bot):
             user.username,
             review_text,
             photo_id=photo.file_id,
+            photo_path=str(file_path),
             rating=rating,
         )
 
@@ -142,3 +158,42 @@ async def review_photo_received(message: Message, state: FSMContext, bot: Bot):
     except Exception as error:
         await loader.stop("❌ Ошибка отправки фото")
         raise error
+
+
+# Обработчик для пользователей, которые присылают фото заново по запросу (в подписи указывают id отзыва)
+@router.message(F.photo)
+async def handle_resend_photo(message: Message, bot: Bot):
+    caption = (message.caption or "").strip()
+    import re
+    m = re.search(r"(?:Resend review|Переслать отзыв)\s*#?(\d+)", caption, flags=re.IGNORECASE)
+    if not m:
+        return  # не наш маркер — это обычное фото
+
+    review_id = int(m.group(1))
+    photo = message.photo[-1]
+    user = message.from_user
+
+    # Сохраняем локальную копию
+    media_dir = Path("media/photos")
+    media_dir.mkdir(parents=True, exist_ok=True)
+    unique_name = f"{uuid.uuid4().hex}.jpg"
+    file_path = media_dir / unique_name
+
+    try:
+        file_obj = await bot.get_file(photo.file_id)
+        file_bytes = await bot.download_file(file_obj.file_path)
+        with open(file_path, "wb") as f:
+            f.write(file_bytes.read())
+
+        # Обновляем запись в БД
+        await db.update_review_photo(review_id, photo.file_id, str(file_path))
+
+        await message.answer(f"✅ Спасибо! Фото для отзыва #{review_id} сохранено.")
+        # Уведомим админа, если нужно
+        try:
+            await bot.send_message(ADMIN_ID, f"Фото для отзыва #{review_id} обновлено пользователем @{user.username}.")
+        except Exception:
+            pass
+    except Exception as e:
+        await message.answer("❌ Не удалось сохранить фото. Попробуйте ещё раз или свяжитесь с админом.")
+        print(f"Ошибка при сохранении пересланного фото для отзыва {review_id}: {e}")

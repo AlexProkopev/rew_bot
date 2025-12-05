@@ -1,6 +1,9 @@
 # telegram_reviews_bot/handlers/admin.py
 import asyncio
 from aiogram import Router, F, Bot
+import os
+import uuid
+from pathlib import Path
 from aiogram.types import Message, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -40,10 +43,76 @@ async def admin_panel(message: Message):
     kb = [
         [KeyboardButton(text="👥 Пользователи"), KeyboardButton(text="📊 Статистика")],
         [KeyboardButton(text="📢 Рассылка"), KeyboardButton(text="📝 Шаблоны сообщений")],
+        [KeyboardButton(text="🔁 Обновить локальные фото")],
+        [KeyboardButton(text="✉️ Попросить прислать фото")],
         [KeyboardButton(text="⬅️ Назад в главное меню")]
     ]
     keyboard = ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
     await message.answer("Добро пожаловать в админ-панель!", reply_markup=keyboard)
+
+@router.message(F.text == "🔁 Обновить локальные фото")
+async def refresh_local_photos(message: Message, bot: Bot):
+    """Попытаться скачать и сохранить локальные копии фото для отзывов без photo_path."""
+    msg = await message.answer("🔄 Запуск обновления локальных фото. Пожалуйста, дождитесь результата...")
+    reviews = await db.get_reviews_missing_photo_path(limit=1000)
+    if not reviews:
+        await msg.edit_text("✅ Нет отзывов, требующих сохранения локальных фото.")
+        return
+
+    success = 0
+    failed = 0
+    media_dir = Path("media/photos")
+    media_dir.mkdir(parents=True, exist_ok=True)
+
+    for review in reviews:
+        try:
+            photo_id = review.get('photo_id')
+            if not photo_id:
+                failed += 1
+                continue
+            file_obj = await bot.get_file(photo_id)
+            file_bytes = await bot.download_file(file_obj.file_path)
+            unique_name = f"{uuid.uuid4().hex}.jpg"
+            file_path = media_dir / unique_name
+            with open(file_path, "wb") as f:
+                f.write(file_bytes.read())
+            await db.update_review_photo_path(review['id'], str(file_path))
+            success += 1
+        except Exception as e:
+            print(f"Не удалось сохранить фото для отзыва {review['id']}: {e}")
+            failed += 1
+
+    await msg.edit_text(f"✅ Готово. Сохранено: {success}, не удалось: {failed}.")
+
+
+@router.message(F.text == "✉️ Попросить прислать фото")
+async def request_photo_resend(message: Message, bot: Bot):
+    """Отправляет пользователям запрос прислать фото заново для отзывов без локальной копии."""
+    msg = await message.answer("🔄 Отправляю запросы пользователям. Пожалуйста, подождите...")
+    reviews = await db.get_reviews_missing_photo_path(limit=1000)
+    if not reviews:
+        await msg.edit_text("✅ Нет отзывов, для которых требуется повторная отправка фото.")
+        return
+
+    sent = 0
+    failed = 0
+    for review in reviews:
+        uid = review.get('user_id')
+        rid = review.get('id')
+        try:
+            text = (
+                f"Здравствуйте!\nУ нас не удалось отобразить фото для вашего отзыва #{rid}.\n"
+                "Пожалуйста, перешлите это сообщение боту с фото, указав в подписи: \"Переслать отзыв {rid}\" или \"Resend review {rid}\".\n"
+                "Пример: в подписи напишите: Переслать отзыв 123"
+            )
+            await bot.send_message(uid, text)
+            sent += 1
+            await asyncio.sleep(0.05)
+        except Exception as e:
+            print(f"Не удалось отправить запрос пользователю {uid} для отзыва {rid}: {e}")
+            failed += 1
+
+    await msg.edit_text(f"✅ Готово. Отправлено: {sent}, не удалось: {failed}.")
 
 @router.message(F.text == "⬅️ Назад в главное меню")
 async def back_to_main_menu(message: Message):
@@ -81,11 +150,28 @@ async def forward_as_review(message: Message, bot: Bot):
     )
     
     # Добавляем отзыв сразу как одобренный с рейтингом 5 звезд
+    # Если есть фото, попробуем сохранить локальную копию для доступности
+    photo_path = None
+    try:
+        if photo_id:
+            media_dir = Path("media/photos")
+            media_dir.mkdir(parents=True, exist_ok=True)
+            unique_name = f"{uuid.uuid4().hex}.jpg"
+            file_path = media_dir / unique_name
+            file_obj = await bot.get_file(photo_id)
+            file_bytes = await bot.download_file(file_obj.file_path)
+            with open(file_path, "wb") as f:
+                f.write(file_bytes.read())
+            photo_path = str(file_path)
+    except Exception:
+        photo_path = None
+
     review_id = await db.add_review(
         user_id=forwarded_user.id,
         username=forwarded_user.username,
         text=text,
         photo_id=photo_id,
+        photo_path=photo_path,
         rating=5,  # Автоматически ставим 5 звезд для пересылаемых отзывов
     )
     await db.update_review_status(review_id, "approved")

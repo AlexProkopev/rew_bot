@@ -20,6 +20,7 @@ async def init_db():
             username TEXT,
             text TEXT NOT NULL,
             photo_id TEXT,
+            photo_path TEXT,
             rating INTEGER DEFAULT 5,
             status TEXT NOT NULL DEFAULT 'pending',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -56,6 +57,7 @@ async def init_db():
     try:
         await conn.execute("ALTER TABLE reviews ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
         await conn.execute("ALTER TABLE reviews ADD COLUMN IF NOT EXISTS rating INTEGER DEFAULT 5")
+        await conn.execute("ALTER TABLE reviews ADD COLUMN IF NOT EXISTS photo_path TEXT")
         await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
         await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
         await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE")
@@ -130,15 +132,15 @@ async def get_all_user_ids():
     return [row["user_id"] for row in rows]
 
 # --- REVIEWS ---
-async def add_review(user_id, username, text, photo_id=None, rating=5):
+async def add_review(user_id, username, text, photo_id=None, photo_path=None, rating=5):
     conn = await get_connection()
     row = await conn.fetchrow(
         """
-        INSERT INTO reviews (user_id, username, text, photo_id, rating)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO reviews (user_id, username, text, photo_id, photo_path, rating)
+        VALUES ($1, $2, $3, $4, $5, $6)
         RETURNING id
         """,
-        user_id, username, text, photo_id, rating
+        user_id, username, text, photo_id, photo_path, rating
     )
     await conn.close()
     return row["id"]
@@ -162,6 +164,42 @@ async def get_approved_reviews(offset=0, limit=5):
     )
     await conn.close()
     return rows
+
+async def get_reviews_missing_photo_path(limit=100):
+    """Возвращает список отзывов, у которых есть photo_id, но нет photo_path (нужно попытаться скачать)."""
+    conn = await get_connection()
+    rows = await conn.fetch(
+        "SELECT * FROM reviews WHERE photo_id IS NOT NULL AND (photo_path IS NULL OR photo_path = '') LIMIT $1",
+        limit,
+    )
+    await conn.close()
+    return rows
+
+async def update_review_photo_path(review_id, photo_path):
+    conn = await get_connection()
+    await conn.execute(
+        "UPDATE reviews SET photo_path = $1 WHERE id = $2",
+        photo_path,
+        review_id,
+    )
+    await conn.close()
+
+async def update_review_photo(review_id, photo_id, photo_path=None):
+    conn = await get_connection()
+    if photo_path:
+        await conn.execute(
+            "UPDATE reviews SET photo_id = $1, photo_path = $2 WHERE id = $3",
+            photo_id,
+            photo_path,
+            review_id,
+        )
+    else:
+        await conn.execute(
+            "UPDATE reviews SET photo_id = $1 WHERE id = $2",
+            photo_id,
+            review_id,
+        )
+    await conn.close()
 
 async def count_approved_reviews():
     conn = await get_connection()

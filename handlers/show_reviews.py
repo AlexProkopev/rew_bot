@@ -1,6 +1,7 @@
 # telegram_reviews_bot/handlers/show_reviews.py
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, InputMediaPhoto
+from pathlib import Path
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from config import ADMIN_ID
@@ -194,11 +195,34 @@ async def show_review_photo(callback: CallbackQuery, bot: Bot):
         from aiogram.types import InputMediaPhoto
 
         await loader.stop()  # Останавливаем лоадер перед показом фото
-        
-        await callback.message.edit_media(
-            media=InputMediaPhoto(media=review['photo_id'], caption=text),
-            reply_markup=reply_markup
-        )
+
+        # Сначала пробуем локальную копию (если есть) — это гарантирует доступность при смене токена
+        photo_path = review.get('photo_path')
+        if photo_path and Path(photo_path).exists():
+            try:
+                with open(photo_path, 'rb') as f:
+                    await callback.message.edit_media(
+                        media=InputMediaPhoto(media=f, caption=text),
+                        reply_markup=reply_markup
+                    )
+                    await callback.answer()
+                    return
+            except Exception as e:
+                print(f"Ошибка при отправке локального файла для отзыва {review_id}: {e}")
+
+        # Если локальной копии нет или не получилось — пробуем показать по file_id
+        try:
+            await callback.message.edit_media(
+                media=InputMediaPhoto(media=review['photo_id'], caption=text),
+                reply_markup=reply_markup
+            )
+            await callback.answer()
+            return
+        except Exception:
+            # Если и это не удалось — показываем сообщение об ошибке
+            await loader.stop("❌ Фото временно недоступно")
+            await callback.answer("Фото временно недоступно", show_alert=True)
+            return
         
     except Exception as e:
         await loader.stop("❌ Фото временно недоступно")
