@@ -8,6 +8,7 @@ from aiogram.types import Message, CallbackQuery, ReplyKeyboardMarkup, KeyboardB
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.filters import Filter
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 import database as db
 from config import ADMIN_ID
 from utils.loader import loading_statistics, loading_user_data, MailingProgressLoader
@@ -423,8 +424,12 @@ async def mailing_confirm(callback: CallbackQuery, state: FSMContext, bot: Bot):
     data = await state.get_data()
     text = data.get("mailing_message")
     await state.clear()
-    
-    user_ids = await db.get_all_user_ids()
+
+    user_ids = await db.get_active_user_ids()
+    if not user_ids:
+        await callback.message.answer("Нет активных пользователей для рассылки.")
+        await admin_panel(callback.message)
+        return
     
     # Создаем прогресс-лоадер для рассылки
     progress_loader = MailingProgressLoader(callback.message, len(user_ids))
@@ -437,6 +442,15 @@ async def mailing_confirm(callback: CallbackQuery, state: FSMContext, bot: Bot):
             await bot.send_message(user_id, text)
             sent_count += 1
             await asyncio.sleep(0.1) # Чтобы не превышать лимиты Telegram
+        except TelegramForbiddenError:
+            failed_count += 1
+            await db.set_user_active(user_id, False)
+        except TelegramBadRequest as e:
+            # Например: "chat not found" / "bot can't initiate conversation with a user"
+            failed_count += 1
+            err_text = str(e).lower()
+            if "chat not found" in err_text or "can't initiate conversation" in err_text:
+                await db.set_user_active(user_id, False)
         except Exception:
             failed_count += 1
         
@@ -635,7 +649,7 @@ async def broadcast_published_review(review_id: int, bot: Bot):
         if not review:
             return
 
-        user_ids = await db.get_all_user_ids()
+        user_ids = await db.get_active_user_ids()
         if not user_ids:
             return
 
@@ -650,6 +664,12 @@ async def broadcast_published_review(review_id: int, bot: Bot):
             try:
                 await bot.send_message(uid, text, reply_markup=kb, disable_notification=True)
                 await asyncio.sleep(0.05)  # небольшая пауза, чтобы не превысить лимиты
+            except TelegramForbiddenError:
+                await db.set_user_active(uid, False)
+            except TelegramBadRequest as e:
+                err_text = str(e).lower()
+                if "chat not found" in err_text or "can't initiate conversation" in err_text:
+                    await db.set_user_active(uid, False)
             except Exception as e:
                 # Логируем, но продолжаем рассылку
                 print(f"Не удалось отправить уведомление пользователю {uid}: {e}")

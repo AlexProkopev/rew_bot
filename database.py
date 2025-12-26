@@ -81,7 +81,8 @@ async def add_or_update_user(user_id, username, first_name, last_name):
             username=EXCLUDED.username, 
             first_name=EXCLUDED.first_name, 
             last_name=EXCLUDED.last_name,
-            last_activity=CURRENT_TIMESTAMP
+            last_activity=CURRENT_TIMESTAMP,
+            is_active=TRUE
         """,
         user_id, username, first_name, last_name
     )
@@ -130,6 +131,21 @@ async def get_all_user_ids():
     rows = await conn.fetch("SELECT user_id FROM users")
     await conn.close()
     return [row["user_id"] for row in rows]
+
+async def get_active_user_ids():
+    conn = await get_connection()
+    rows = await conn.fetch("SELECT user_id FROM users WHERE is_active = TRUE")
+    await conn.close()
+    return [row["user_id"] for row in rows]
+
+async def set_user_active(user_id: int, is_active: bool) -> None:
+    conn = await get_connection()
+    await conn.execute(
+        "UPDATE users SET is_active = $1 WHERE user_id = $2",
+        is_active,
+        user_id,
+    )
+    await conn.close()
 
 # --- REVIEWS ---
 async def add_review(user_id, username, text, photo_id=None, photo_path=None, rating=5):
