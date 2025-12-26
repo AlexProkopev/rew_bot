@@ -18,16 +18,17 @@ async def main():
     await db.init_db()
 
     # Инициализация бота и диспетчера
-    async with Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML")) as bot:
-        storage = MemoryStorage()
-        dp = Dispatcher(storage=storage)
+    bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
+    storage = MemoryStorage()
+    dp = Dispatcher(storage=storage)
 
-        # Регистрация роутеров
-        dp.include_router(start.router)
-        dp.include_router(reviews.router)
-        dp.include_router(show_reviews.router)
-        dp.include_router(admin.router) # Админский роутер должен быть последним, чтобы его фильтры не мешали другим
+    # Регистрация роутеров
+    dp.include_router(start.router)
+    dp.include_router(reviews.router)
+    dp.include_router(show_reviews.router)
+    dp.include_router(admin.router) # Админский роутер должен быть последним, чтобы его фильтры не мешали другим
 
+    try:
         # Удаление вебхука и запуск поллинга
         try:
             await bot.delete_webhook(drop_pending_updates=True, request_timeout=60)
@@ -35,6 +36,12 @@ async def main():
             logging.warning("delete_webhook failed (network timeout). Continue polling. Error: %s", e)
 
         await dp.start_polling(bot)
+    finally:
+        # В aiogram 3.4.x Bot не является async context manager, поэтому закрываем сессию вручную
+        try:
+            await bot.session.close()
+        except Exception:
+            pass
 
 if __name__ == "__main__":
     asyncio.run(main())
